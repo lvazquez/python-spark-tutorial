@@ -1,60 +1,59 @@
 from pyspark.sql import SparkSession
-
-AGE_MIDPOINT = "age_midpoint"
-SALARY_MIDPOINT = "salary_midpoint"
-SALARY_MIDPOINT_BUCKET = "salary_midpoint_bucket"
+from pyspark.sql.functions import col,avg
+import sys
 
 if __name__ == "__main__":
 
-    session = SparkSession.builder.appName("StackOverFlowSurvey").getOrCreate()
+    spark = SparkSession.builder.appName("StackOverFlowSurvey").master("local[*]").getOrCreate()
 
-    dataFrameReader = session.read
+    dataFrameReader = spark.read
 
     responses = dataFrameReader \
         .option("header", "true") \
         .option("inferSchema", value = True) \
         .csv("in/2016-stack-overflow-survey-responses.csv")
 
+    responseSelected = responses.select("country", "occupation", 
+        "age_midpoint", "salary_midpoint")
+
     print("=== Print out schema ===")
-    responses.printSchema()
+    responseSelected.printSchema()
     
-    responseWithSelectedColumns = responses.select("country", "occupation", 
-        AGE_MIDPOINT, SALARY_MIDPOINT)
-
+    print("=== Filter rows with NULL occupation ===")
+    responseSelected = responseSelected.filter(col("occupation").isNotNull())
+    
     print("=== Print the selected columns of the table ===")
-    responseWithSelectedColumns.show()
-
+    responseSelected.show()
+    
     print("=== Print records where the response is from Afghanistan ===")
-    responseWithSelectedColumns\
-        .filter(responseWithSelectedColumns["country"] == "Afghanistan").show()
+    responseSelected.filter(col('country') == "Afghanistan").show()
 
     print("=== Print the count of occupations ===")
-    groupedData = responseWithSelectedColumns.groupBy("occupation")
+    groupedData = responseSelected.groupBy("occupation")
     groupedData.count().show()
 
     print("=== Print records with average mid age less than 20 ===")
-    responseWithSelectedColumns\
-        .filter(responseWithSelectedColumns[AGE_MIDPOINT] < 20).show()
+    responseSelected.filter(col("age_midpoint") < 20).show()
 
     print("=== Print the result by salary middle point in descending order ===")
-    responseWithSelectedColumns\
-        .orderBy(responseWithSelectedColumns[SALARY_MIDPOINT], ascending = False).show()
+    responseSelected.orderBy(col("salary_midpoint"), ascending = False).show()
 
     print("=== Group by country and aggregate by average salary middle point ===")
-    dataGroupByCountry = responseWithSelectedColumns.groupBy("country")
-    dataGroupByCountry.avg(SALARY_MIDPOINT).show()
+    dataGroupByCountry = responseSelected.groupBy("country")
+    dataGroupByCountry.agg(avg("salary_midpoint").alias("average_salary"))\
+                      .orderBy(col("average_salary"), ascending = False).show()
 
-    responseWithSalaryBucket = responses.withColumn(SALARY_MIDPOINT_BUCKET,
-        ((responses[SALARY_MIDPOINT]/20000).cast("integer")*20000))
+    responseSalaryBucket = responseSelected.filter(col("salary_midpoint").isNotNull())\
+                                           .withColumn(
+                                               "salary_bucket",
+                                               (col("salary_midpoint")/20000).cast("integer")*20000
+                                           )
 
     print("=== With salary bucket column ===")
-    responseWithSalaryBucket.select(SALARY_MIDPOINT, SALARY_MIDPOINT_BUCKET).show()
+    responseSalaryBucket.select("salary_midpoint", "salary_bucket").show()
 
     print("=== Group by salary bucket ===")
-    responseWithSalaryBucket \
-        .groupBy(SALARY_MIDPOINT_BUCKET) \
-        .count() \
-        .orderBy(SALARY_MIDPOINT_BUCKET) \
-        .show()
+    responseSalaryBucket.groupBy("salary_bucket")\
+                        .count().orderBy("salary_bucket").show()
 
-    session.stop()
+    spark.stop()
